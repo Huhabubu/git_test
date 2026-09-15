@@ -1,4 +1,4 @@
-name: Shidian Ming Taizu EPUB test
+name: Shidian Generic EPUB test
 
 on:
   push:
@@ -23,12 +23,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
 
-      - name: Probe loader hierarchy
-        run: |
-          python shidian_epub/probe_loader_structure.py \
-            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x' \
-            '1k7geysfcta1x'
-
       - name: Restore chapter cache
         uses: actions/cache/restore@v4
         with:
@@ -37,50 +31,56 @@ jobs:
           restore-keys: |
             shidian-ls0026-
 
-      - name: Download 明太祖实录 and build EPUB
-        id: download
-        continue-on-error: true
+      - name: Auto-detect group and build EPUB
         run: |
           mkdir -p shidian_epub/out
-          python shidian_epub/shidian_segment_to_epub.py \
-            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x?page_from=home_page&__loader=__session%2F%28lang%24%29%2Fbook%2F%24&__ssrDirect=true' \
-            --title '明太祖实录' \
+          python shidian_epub/shidian_to_epub.py \
+            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x' \
             -o 'shidian_epub/out/明太祖实录.epub' \
             --cache-dir 'shidian_epub/cache' \
             --workers 2 \
             --attempts 6 \
-            --min-interval 0.45 \
-            --from-chapter-id '1k6qotvc8abea' \
-            --to-chapter-id '1k6q57cmiw2sy'
+            --min-interval 0.45
 
-      - name: Verify full download
-        if: always()
+      - name: Verify generic auto selection
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
+
           p = Path('shidian_epub/out/明太祖实录.report.json')
-          assert p.exists(), 'report 不存在，下载步骤在生成报告前失败'
+          assert p.exists(), 'report 不存在'
           d = json.loads(p.read_text(encoding='utf-8'))
-          summary = {k: d.get(k) for k in ['catalog_total','selected_count','pages','total_chars','has_volume_1','has_volume_257']}
-          summary['failures'] = len(d.get('failures', []))
-          summary['duplicates'] = len(d.get('duplicates', []))
-          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          print(json.dumps({
+              'book_id': d.get('book_id'),
+              'book_name': d.get('book_name'),
+              'selection_mode': d.get('selection_mode'),
+              'group_index': d.get('group_index'),
+              'group_name': d.get('group_name'),
+              'catalog_count': d.get('catalog_count'),
+              'selected_count': d.get('selected_count'),
+              'pages': d.get('pages'),
+              'total_chars': d.get('total_chars'),
+              'failures': len(d.get('failures', [])),
+              'duplicates': len(d.get('duplicates', [])),
+          }, ensure_ascii=False, indent=2))
           print('first:', d.get('selected_first'))
           print('last :', d.get('selected_last'))
-          if d.get('failures'):
-              print('first failures:')
-              for x in d['failures'][:10]:
-                  print(json.dumps(x, ensure_ascii=False))
-          assert d['selected_count'] == 263, f"应选 263 个章节页，实际 {d['selected_count']}"
-          assert d['pages'] == 263, f"应成功 263 页，实际 {d['pages']}"
-          assert not d['failures'], f"仍有失败章节: {len(d['failures'])}"
-          assert d['has_volume_1'], '没有抓到卷之一'
-          assert d['has_volume_257'], '没有抓到卷之二百五十七'
-          assert d['total_chars'] > 1_000_000, f"正文字符数异常小: {d['total_chars']}"
+
+          assert d['book_id'] == 'LS0026'
+          assert d['selection_mode'] == 'chapter_group'
+          assert d['group_index'] == 1
+          assert d['group_name'] == '太祖高皇帝實錄'
+          assert d['selected_count'] == 263, d['selected_count']
+          assert d['pages'] == 263, d['pages']
+          assert not d['failures'], d['failures'][:3]
+          assert d['selected_first']['chapter_id'] == '1k6qotvc8abea'
+          assert d['selected_last']['chapter_id'] == '1k6q57cmiw2sy'
+          assert d['total_chars'] > 1_000_000
+
           epub = Path('shidian_epub/out/明太祖实录.epub')
-          assert epub.exists(), 'EPUB 不存在'
-          assert epub.stat().st_size > 1_000_000, f"EPUB 文件异常小: {epub.stat().st_size}"
+          assert epub.exists()
+          assert epub.stat().st_size > 1_000_000
           PY
 
       - name: Save chapter cache
@@ -90,11 +90,11 @@ jobs:
           path: shidian_epub/cache/LS0026
           key: shidian-ls0026-${{ github.run_id }}
 
-      - name: Upload EPUB, report and debug pages
+      - name: Upload EPUB and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ming-taizu-shilu-epub
+          name: shidian-generic-epub
           path: |
             shidian_epub/out/
             shidian_epub/cache/LS0026/debug/
