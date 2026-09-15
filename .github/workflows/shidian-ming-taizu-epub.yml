@@ -1,6 +1,12 @@
 name: Shidian Ming Taizu EPUB test
 
 on:
+  push:
+    branches:
+      - feat/shidian-epub-test
+    paths:
+      - 'shidian_epub/**'
+      - '.github/workflows/shidian-ming-taizu-epub.yml'
   workflow_dispatch:
 
 jobs:
@@ -9,15 +15,28 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
-      - name: Download Ming Taizu Shilu and build EPUB
+
+      - name: Restore chapter cache
+        uses: actions/cache/restore@v4
+        with:
+          path: shidian_epub/cache/LS0026
+          key: shidian-ls0026-${{ github.run_id }}
+          restore-keys: |
+            shidian-ls0026-
+
+      - name: Download 明太祖实录 and build EPUB
+        id: download
+        continue-on-error: true
         run: |
           mkdir -p shidian_epub/out
-          python shidian_epub/shidian_chain_to_epub.py \
+          python shidian_epub/shidian_segment_to_epub.py \
             'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x?page_from=home_page&__loader=__session%2F%28lang%24%29%2Fbook%2F%24&__ssrDirect=true' \
             --title '明太祖实录' \
             -o 'shidian_epub/out/明太祖实录.epub' \
@@ -27,3 +46,51 @@ jobs:
             --min-interval 0.45 \
             --from-chapter-id '1k6qotvc8abea' \
             --to-chapter-id '1k6q57cmiw2sy'
+
+      - name: Verify full download
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('shidian_epub/out/明太祖实录.report.json')
+          assert p.exists(), 'report 不存在，下载步骤在生成报告前失败'
+          d = json.loads(p.read_text(encoding='utf-8'))
+          summary = {k: d.get(k) for k in ['catalog_total','selected_count','pages','total_chars','has_volume_1','has_volume_257']}
+          summary['failures'] = len(d.get('failures', []))
+          summary['duplicates'] = len(d.get('duplicates', []))
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          print('first:', d.get('selected_first'))
+          print('last :', d.get('selected_last'))
+          if d.get('failures'):
+              print('first failures:')
+              for x in d['failures'][:10]:
+                  print(json.dumps(x, ensure_ascii=False))
+          assert d['selected_count'] == 263, f"应选 263 个章节页，实际 {d['selected_count']}"
+          assert d['pages'] == 263, f"应成功 263 页，实际 {d['pages']}"
+          assert not d['failures'], f"仍有失败章节: {len(d['failures'])}"
+          assert d['has_volume_1'], '没有抓到卷之一'
+          assert d['has_volume_257'], '没有抓到卷之二百五十七'
+          assert d['total_chars'] > 1_000_000, f"正文字符数异常小: {d['total_chars']}"
+          epub = Path('shidian_epub/out/明太祖实录.epub')
+          assert epub.exists(), 'EPUB 不存在'
+          assert epub.stat().st_size > 1_000_000, f"EPUB 文件异常小: {epub.stat().st_size}"
+          PY
+
+      - name: Save chapter cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: shidian_epub/cache/LS0026
+          key: shidian-ls0026-${{ github.run_id }}
+
+      - name: Upload EPUB, report and debug pages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ming-taizu-shilu-epub
+          path: |
+            shidian_epub/out/
+            shidian_epub/cache/LS0026/debug/
+          if-no-files-found: warn
+          retention-days: 7
