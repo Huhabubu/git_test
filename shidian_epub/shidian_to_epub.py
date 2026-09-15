@@ -8,6 +8,7 @@ import json
 import re
 import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -426,6 +427,37 @@ def duplicate_groups(pages: list[Any]) -> list[list[str]]:
     return [urls for urls in by_hash.values() if len(urls) > 1]
 
 
+def validate_epub(path: Path, expected_chapters: int) -> None:
+    if not path.exists() or not zipfile.is_zipfile(path):
+        raise RuntimeError("EPUB 不存在或不是有效 ZIP 容器")
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        required = {
+            "mimetype",
+            "META-INF/container.xml",
+            "OEBPS/content.opf",
+            "OEBPS/nav.xhtml",
+            "OEBPS/toc.ncx",
+        }
+        missing = required - set(names)
+        if missing:
+            raise RuntimeError(f"EPUB 缺少必要文件: {sorted(missing)}")
+        if names[0] != "mimetype":
+            raise RuntimeError("EPUB mimetype 必须是 ZIP 第一项")
+        if zf.getinfo("mimetype").compress_type != zipfile.ZIP_STORED:
+            raise RuntimeError("EPUB mimetype 不应压缩")
+        if zf.read("mimetype") != b"application/epub+zip":
+            raise RuntimeError("EPUB mimetype 内容错误")
+        chapters = [
+            n for n in names
+            if re.fullmatch(r"OEBPS/chapter_\d{4}\.xhtml", n)
+        ]
+        if len(chapters) != expected_chapters:
+            raise RuntimeError(
+                f"EPUB 章节数不一致: expected={expected_chapters} actual={len(chapters)}"
+            )
+
+
 def write_report(
     path: Path,
     bid: str,
@@ -561,7 +593,7 @@ def main() -> int:
         )
 
     old.build_epub(output, title, bid, pages)
-    old.validate_epub(output, len(pages))
+    validate_epub(output, len(pages))
 
     log(
         f"完成: selected={len(selection.chapters)} pages={len(pages)} "
