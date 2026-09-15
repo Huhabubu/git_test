@@ -23,6 +23,28 @@ jobs:
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
 
+      - name: Diagnose raw chapter HTML
+        run: |
+          python - <<'PY'
+          import requests
+          urls = [
+              'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x',
+              'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x?page_from=home_page&__loader=__session%2F%28lang%24%29%2Fbook%2F%24&__ssrDirect=true',
+          ]
+          for i, url in enumerate(urls, 1):
+              r = requests.get(url, headers={'User-Agent':'Mozilla/5.0'}, timeout=30)
+              text = r.text
+              print('\n=== URL', i, '===')
+              print('status=', r.status_code, 'len=', len(text), 'content-type=', r.headers.get('content-type'))
+              print('final_url=', r.url)
+              for needle in ['Next', 'next', '1k7geysfctmp1', '__ROUTER_DATA', 'loaderData', '/chapter/']:
+                  pos = text.find(needle)
+                  print(needle, 'pos=', pos)
+                  if pos >= 0:
+                      print(text[max(0,pos-350):pos+700].replace('\n',' ')[:1100])
+              open(f'shidian_epub/raw_{i}.html','w',encoding='utf-8').write(text)
+          PY
+
       - name: Download 明太祖实录 and build EPUB
         run: |
           mkdir -p shidian_epub/out
@@ -46,7 +68,7 @@ jobs:
           assert Path('shidian_epub/out/明太祖实录.epub').stat().st_size > 100_000, 'EPUB 文件异常小'
           PY
 
-      - name: Upload EPUB and report
+      - name: Upload EPUB report and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -54,5 +76,6 @@ jobs:
           path: |
             shidian_epub/out/
             shidian_epub/cache/LS0026/*.json
+            shidian_epub/raw_*.html
           if-no-files-found: warn
           retention-days: 7
