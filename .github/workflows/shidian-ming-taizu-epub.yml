@@ -23,37 +23,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
 
-      - name: Diagnose raw chapter HTML
-        run: |
-          python - <<'PY'
-          import requests
-          urls = [
-              'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x',
-              'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x?page_from=home_page&__loader=__session%2F%28lang%24%29%2Fbook%2F%24&__ssrDirect=true',
-          ]
-          for i, url in enumerate(urls, 1):
-              r = requests.get(url, headers={'User-Agent':'Mozilla/5.0'}, timeout=30)
-              text = r.text
-              print('\n=== URL', i, '===')
-              print('status=', r.status_code, 'len=', len(text), 'content-type=', r.headers.get('content-type'))
-              print('final_url=', r.url)
-              for needle in ['Next', 'next', '1k7geysfctmp1', '__ROUTER_DATA', 'loaderData', '/chapter/']:
-                  pos = text.find(needle)
-                  print(needle, 'pos=', pos)
-                  if pos >= 0:
-                      print(text[max(0,pos-350):pos+700].replace('\n',' ')[:1100])
-              open(f'shidian_epub/raw_{i}.html','w',encoding='utf-8').write(text)
-          PY
-
       - name: Download 明太祖实录 and build EPUB
         run: |
           mkdir -p shidian_epub/out
           python shidian_epub/shidian_chain_to_epub.py \
-            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x' \
+            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x?page_from=home_page&__loader=__session%2F%28lang%24%29%2Fbook%2F%24&__ssrDirect=true' \
             --title '明太祖实录' \
             -o 'shidian_epub/out/明太祖实录.epub' \
             --cache-dir 'shidian_epub/cache' \
-            --delay 0.05
+            --workers 5
 
       - name: Verify full download
         run: |
@@ -62,13 +40,16 @@ jobs:
           from pathlib import Path
           p = Path('shidian_epub/out/明太祖实录.report.json')
           d = json.loads(p.read_text(encoding='utf-8'))
-          print(json.dumps({k: d[k] for k in ['pages','has_volume_1','has_volume_257','warnings']}, ensure_ascii=False, indent=2))
+          summary = {k: d[k] for k in ['catalog_count','pages','has_volume_1','has_volume_257','failures','duplicates']}
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          assert d['pages'] == d['catalog_count'], f"目录 {d['catalog_count']}，成功 {d['pages']}"
+          assert not d['failures'], f"有失败章节: {len(d['failures'])}"
           assert d['has_volume_1'], '没有抓到卷之一'
           assert d['has_volume_257'], '没有抓到卷之二百五十七'
           assert Path('shidian_epub/out/明太祖实录.epub').stat().st_size > 100_000, 'EPUB 文件异常小'
           PY
 
-      - name: Upload EPUB report and diagnostics
+      - name: Upload EPUB and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -76,6 +57,5 @@ jobs:
           path: |
             shidian_epub/out/
             shidian_epub/cache/LS0026/*.json
-            shidian_epub/raw_*.html
           if-no-files-found: warn
           retention-days: 7
