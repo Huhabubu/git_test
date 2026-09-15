@@ -112,14 +112,12 @@ def flatten_catalog(book_info: dict) -> list[CatalogChapter]:
                         )
                     )
 
-            # 先处理常见子章节字段，以维持人类阅读顺序。
             handled: set[str] = set()
             for key in ("chapters", "subChapters", "children", "items"):
                 if key in obj:
                     handled.add(key)
                     walk(obj[key])
 
-            # 兼容未来结构变化；chapterName/orderList 等不会含 chapterId。
             for key, value in obj.items():
                 if key in handled:
                     continue
@@ -169,7 +167,6 @@ def parse_groups(book_info: dict, catalog: list[CatalogChapter]) -> list[Chapter
         if starts and ends:
             pairs = [(s, e) for s in starts for e in ends if s <= e]
             if pairs:
-                # 同一 volumeId 可能覆盖多个连续章节：从最早 start 到最晚 end。
                 group.start_catalog_index = min(s for s, _ in pairs)
                 group.end_catalog_index = max(e for _, e in pairs)
         groups.append(group)
@@ -212,7 +209,6 @@ def select_chapters(
     group_index: Optional[int],
     group_name: str,
 ) -> Selection:
-    # 1) 手工起止：最高优先级，作为特殊结构的安全兜底。
     if from_id or to_id:
         if not (from_id and to_id):
             raise ValueError("--from-chapter-id 与 --to-chapter-id 必须同时提供")
@@ -227,7 +223,6 @@ def select_chapters(
         if g.start_catalog_index is not None and g.end_catalog_index is not None
     ]
 
-    # 2) 用户明确指定 chapterGroup（1-based）。
     if group_index is not None:
         if group_index < 1 or group_index > len(groups):
             raise ValueError(f"--group-index 范围应为 1..{len(groups)}")
@@ -237,7 +232,6 @@ def select_chapters(
         seg = catalog[g.start_catalog_index:g.end_catalog_index + 1]
         return Selection("chapter_group", catalog_to_chapters(seg), g, seed_chapter_id)
 
-    # 3) 用户按名字指定分组。
     if group_name:
         exact = [g for g in resolved if g.name == group_name]
         hits = exact or [g for g in resolved if group_name in g.name]
@@ -250,7 +244,6 @@ def select_chapters(
         seg = catalog[g.start_catalog_index:g.end_catalog_index + 1]  # type: ignore[index]
         return Selection("chapter_group", catalog_to_chapters(seg), g, seed_chapter_id)
 
-    # 4) 章节 URL：用章节在 catalog 的位置自动判断 chapterGroup。
     if seed_chapter_id:
         seed_idx = find_index(catalog, seed_chapter_id)
         hits = [
@@ -266,11 +259,9 @@ def select_chapters(
                 f"输入章节同时落入 {len(hits)} 个 chapterGroup，无法安全自动选择"
             )
 
-    # 5) 没有分组：普通单书，整个 catalog 就是一本书。
     if not groups:
         return Selection("whole_catalog", catalog_to_chapters(catalog), None, seed_chapter_id)
 
-    # 6) 只有一个可解析分组，也可以自动使用。
     if len(resolved) == 1:
         g = resolved[0]
         seg = catalog[g.start_catalog_index:g.end_catalog_index + 1]  # type: ignore[index]
@@ -428,7 +419,10 @@ def download_all(
 def duplicate_groups(pages: list[Any]) -> list[list[str]]:
     by_hash: dict[str, list[str]] = {}
     for p in pages:
-        by_hash.setdefault(p.content_sha256, []).append(p.url)
+        digest = getattr(p, "sha256", None) or getattr(p, "content_sha256", None)
+        if not digest:
+            continue
+        by_hash.setdefault(str(digest), []).append(p.url)
     return [urls for urls in by_hash.values() if len(urls) > 1]
 
 
