@@ -70,21 +70,23 @@ def find_paths(root: Any, target_id: str):
     return matches
 
 
-def print_group_sample(groups: Any) -> None:
-    print("\n=== chapterGroups ===")
-    print("chapterGroups_brief:", json.dumps(brief(groups), ensure_ascii=False))
+def print_groups(groups: Any) -> None:
+    print("\n=== chapterGroups exact ===")
     if isinstance(groups, list):
         print("chapterGroups_len:", len(groups))
-        for i, g in enumerate(groups[:30]):
-            print(f"group_{i}:", json.dumps(brief(g), ensure_ascii=False))
-            # 打印一层非标量子字段的概要，便于判断 start/end 或 chapter id 列表放在哪里。
+        for i, g in enumerate(groups):
             if isinstance(g, dict):
-                for k, v in g.items():
-                    if isinstance(v, (list, dict)):
-                        print(f"group_{i}.{k}:", json.dumps(brief(v), ensure_ascii=False))
-    elif isinstance(groups, dict):
-        for k, v in groups.items():
-            print(f"chapterGroups.{k}:", json.dumps(brief(v), ensure_ascii=False))
+                payload = {
+                    "chapterId": g.get("chapterId"),
+                    "chapterName": g.get("chapterName"),
+                    "interval": g.get("interval"),
+                    "orderList": g.get("orderList"),
+                }
+                print(f"group_{i}:", json.dumps(payload, ensure_ascii=False))
+            else:
+                print(f"group_{i}:", json.dumps(g, ensure_ascii=False))
+    else:
+        print("chapterGroups:", json.dumps(groups, ensure_ascii=False))
 
 
 def main() -> int:
@@ -103,16 +105,16 @@ def main() -> int:
     print("total_unique_chapters:", total)
 
     book_info = data.get("bookInfo", {}) if isinstance(data, dict) else {}
-    print("bookInfo:", json.dumps(brief(book_info), ensure_ascii=False))
-    print_group_sample(book_info.get("chapterGroups"))
+    print("book_id:", book_info.get("bookId"))
+    print("book_name:", book_info.get("bookName"))
+    print_groups(book_info.get("chapterGroups"))
 
     matches = find_paths(data, target)
     print("\nmatches:", len(matches))
     for mi, (path, ancestors) in enumerate(matches, 1):
         print("\n=== MATCH", mi, "===")
         print("path:", json.dumps(path, ensure_ascii=False))
-        print("ancestor_count:", len(ancestors))
-        for i, anc in enumerate(reversed(ancestors[-12:])):
+        for i, anc in enumerate(reversed(ancestors[-6:])):
             print(f"ancestor_minus_{i}:", json.dumps(brief(anc), ensure_ascii=False))
 
     return 0 if matches else 1
