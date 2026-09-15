@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
 
+      - name: Probe loader hierarchy
+        run: |
+          python shidian_epub/probe_loader_structure.py \
+            'https://www.shidianguji.com/book/LS0026/chapter/1k7geysfcta1x' \
+            '1k7geysfcta1x'
+
       - name: Restore chapter cache
         uses: actions/cache/restore@v4
         with:
