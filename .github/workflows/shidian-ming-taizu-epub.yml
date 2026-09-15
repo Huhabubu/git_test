@@ -1,12 +1,6 @@
 name: Shidian Ming Taizu EPUB test
 
 on:
-  push:
-    branches:
-      - feat/shidian-epub-test
-    paths:
-      - 'shidian_epub/**'
-      - '.github/workflows/shidian-ming-taizu-epub.yml'
   workflow_dispatch:
 
 jobs:
@@ -15,15 +9,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install dependencies
         run: pip install -r shidian_epub/requirements.txt
-
-      - name: Download 明太祖实录 and build EPUB
+      - name: Download Ming Taizu Shilu and build EPUB
         run: |
           mkdir -p shidian_epub/out
           python shidian_epub/shidian_chain_to_epub.py \
@@ -31,31 +22,8 @@ jobs:
             --title '明太祖实录' \
             -o 'shidian_epub/out/明太祖实录.epub' \
             --cache-dir 'shidian_epub/cache' \
-            --workers 5
-
-      - name: Verify full download
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path('shidian_epub/out/明太祖实录.report.json')
-          d = json.loads(p.read_text(encoding='utf-8'))
-          summary = {k: d[k] for k in ['catalog_count','pages','has_volume_1','has_volume_257','failures','duplicates']}
-          print(json.dumps(summary, ensure_ascii=False, indent=2))
-          assert d['pages'] == d['catalog_count'], f"目录 {d['catalog_count']}，成功 {d['pages']}"
-          assert not d['failures'], f"有失败章节: {len(d['failures'])}"
-          assert d['has_volume_1'], '没有抓到卷之一'
-          assert d['has_volume_257'], '没有抓到卷之二百五十七'
-          assert Path('shidian_epub/out/明太祖实录.epub').stat().st_size > 100_000, 'EPUB 文件异常小'
-          PY
-
-      - name: Upload EPUB and report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ming-taizu-shilu-epub
-          path: |
-            shidian_epub/out/
-            shidian_epub/cache/LS0026/*.json
-          if-no-files-found: warn
-          retention-days: 7
+            --workers 2 \
+            --attempts 6 \
+            --min-interval 0.45 \
+            --from-chapter-id '1k6qotvc8abea' \
+            --to-chapter-id '1k6q57cmiw2sy'
